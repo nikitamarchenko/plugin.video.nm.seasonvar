@@ -32,6 +32,9 @@ def index():
     result.append({'label': 'Settings',
                    'path': plugin.url_for('settings')})
 
+    result.append({'label': 'BBT',
+                   'path': plugin.url_for('show_serial', season_id=14242)})
+
     return result
 
 
@@ -69,8 +72,9 @@ def activate():
         try:
             response.cookies['svid']
         except KeyError:
-            plugin.notify('Problems with login, please check login and password '
-                          'and try again')
+            plugin.notify(
+                'Problems with login, please check login and password '
+                'and try again')
             plugin.log.error('Login error')
             dialog.close()
             raise
@@ -82,7 +86,8 @@ def activate():
             try:
                 soup = BeautifulSoup(response.text)
                 key = \
-                    soup.findAll(value=lambda (value): value and len(value) == 8)[
+                    soup.findAll(
+                        value=lambda (value): value and len(value) == 8)[
                         0][
                         'value']
                 storage = plugin.get_storage()
@@ -129,23 +134,24 @@ def serial_list_second_layer(letter):
 
 @plugin.route('/serial_list_last_layer/<letters>')
 def serial_list_last_layer(letters):
+    plugin.set_content('tvshows')
     letters = unicode(letters, encoding='utf-8')
     serials = get_serial_names_map()
     first = letters[0] if letters[0].isalpha() else '<Else>'
     return [{
                 'label': name,
-                'path': plugin.url_for('show_serial', season_id=season_id)
+                'thumbnail': 'http://cdn.seasonvar.ru/oblojka/{0}.jpg'.format(
+                    season_id),
+                'path': plugin.url_for('show_serial', season_id=season_id),
+                'info': {
+                    'mediatype': 'tvshow',
+                }
             }
             for name, season_id in serials[first][letters]]
 
 
-@plugin.route('/show_serial/<season_id>')
-def show_serial(season_id):
-    pass
-
-
 def seasonvar_get_serial_list():
-    storage = plugin.get_storage(TTL=60 * 24)
+    storage = plugin.get_storage()
     data = {'key': storage['api_key'], 'command': 'getSerialList'}
     r = requests.post('http://api.seasonvar.ru/', data=data)
     if r.ok:
@@ -201,6 +207,43 @@ def get_serial_names_map():
     except KeyError:
         serials_list_sync()
         return serial_names_map['data']
+
+
+def seasonvar_get_serial_seasons_list(season_id):
+    storage = plugin.get_storage()
+    data = {'key': storage['api_key'],
+            'command': 'getSeasonList',
+            'id': season_id}
+    r = requests.post('http://api.seasonvar.ru/', data=data)
+    if r.ok:
+        r = r.json()
+        return r
+
+
+@plugin.route('/show_serial/<season_id>')
+def show_serial(season_id):
+    plugin.set_content('seasons')
+    seasons = seasonvar_get_serial_seasons_list(season_id)
+    return [{
+         'label': "{0} {1}".format("Season", s.get('season_number', 1)),
+         'thumbnail': s['poster'],
+         'path': plugin.url_for('show_season', season_id=s['id']),
+         'info': {
+             'mediatype': 'season',
+             'tvshowtitle': s['name'],
+             'year': s['year'],
+             'genre': s['genre'],
+             'country': s['country'],
+             'season': s.get('season_number', 1),
+             'plot': s['description']
+         }
+     }
+     for s in seasons]
+
+
+@plugin.route('/show_season/<season_id>')
+def show_season(season_id):
+    pass
 
 
 if __name__ == '__main__':
