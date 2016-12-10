@@ -225,25 +225,69 @@ def show_serial(season_id):
     plugin.set_content('seasons')
     seasons = seasonvar_get_serial_seasons_list(season_id)
     return [{
-         'label': "{0} {1}".format("Season", s.get('season_number', 1)),
-         'thumbnail': s['poster'],
-         'path': plugin.url_for('show_season', season_id=s['id']),
-         'info': {
-             'mediatype': 'season',
-             'tvshowtitle': s['name'],
-             'year': s['year'],
-             'genre': s['genre'],
-             'country': s['country'],
-             'season': s.get('season_number', 1),
-             'plot': s['description']
-         }
-     }
-     for s in seasons]
+                'label': "{0} {1}".format("Season", s.get('season_number', 1)),
+                'thumbnail': s['poster'],
+                'path': plugin.url_for('show_season', season_id=s['id']),
+                'info': {
+                    'mediatype': 'season',
+                    'tvshowtitle': s['name'],
+                    'year': s['year'],
+                    'genre': s['genre'],
+                    'country': s['country'],
+                    'season': s.get('season_number', 1),
+                    'plot': s['description']
+                }
+            }
+            for s in seasons]
+
+
+def seasonvar_get_episodes_list(season_id):
+    storage = plugin.get_storage()
+    data = {'key': storage['api_key'],
+            'command': 'getSeason',
+            'season_id': season_id}
+    r = requests.post('http://api.seasonvar.ru/', data=data)
+    if r.ok:
+        r = r.json()
+        return r
 
 
 @plugin.route('/show_season/<season_id>')
 def show_season(season_id):
-    pass
+    plugin.set_content('episodes')
+
+    # episodes.keys() [u'rating',
+    # u'playlist',
+    # u'name',
+    # u'poster',
+    # u'other_season',
+    # u'poster_small',
+    # u'name_original',
+    # u'year',
+    # u'genre',
+    # u'country',
+    # u'season_number',
+    # u'id',
+    # u'description']
+
+    episodes = seasonvar_get_episodes_list(season_id)
+    # playlist.keys() [u'subtitles', u'link', u'name', u'perevod']
+
+    return [{
+                'label': u"{0} {1}".format(e['name'], e.get('perevod', '')),
+                'thumbnail': episodes['poster'],
+                'path': e['link'],
+                'info': {
+                    'mediatype': 'episode',
+                    'tvshowtitle': episodes['name'],
+                    'year': episodes['year'],
+                    'genre': episodes['genre'],
+                    'country': episodes['country'],
+                    'season': episodes.get('season_number', 1)
+                },
+                'is_playable': True
+            }
+            for e in episodes['playlist']]
 
 
 if __name__ == '__main__':
