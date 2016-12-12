@@ -1,16 +1,24 @@
+# coding=utf-8
 from collections import defaultdict
 
-from xbmcswift2 import xbmcgui
-from xbmcswift2 import xbmc
+import sys
+import os
 
-from xbmcswift2 import actions
+sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                             'resources', 'lib'))
 
-import xbmcswift2
+from kodiswift import xbmcgui
+from kodiswift import xbmc
+from kodiswift import xbmcplugin
+
+from kodiswift import actions
+
+import kodiswift
 
 import requests
 from BeautifulSoup import BeautifulSoup
 
-plugin = xbmcswift2.Plugin()
+plugin = kodiswift.Plugin(addon_id='plugin.video.nm.seasonvar')
 
 
 def is_activated():
@@ -32,8 +40,8 @@ def index():
     result.append({'label': 'Settings',
                    'path': plugin.url_for('settings')})
 
-    result.append({'label': 'BBT',
-                   'path': plugin.url_for('show_serial', season_id=14242)})
+    # result.append({'label': 'BBT',
+    #                'path': plugin.url_for('show_serial', season_id=14242)})
 
     return result
 
@@ -160,8 +168,8 @@ def seasonvar_get_serial_list():
 
 
 def serials_list_sync():
-    serial_map_by_id = plugin.get_storage('serial_map_by_id', TTL=60 * 24)
-    serial_names_map = plugin.get_storage('serial_names_map', TTL=60 * 24)
+    serial_map_by_id = plugin.get_storage('serial_map_by_id', ttl=60 * 24)
+    serial_names_map = plugin.get_storage('serial_names_map', ttl=60 * 24)
 
     if 'data' in serial_map_by_id and 'data' in serial_names_map:
         return
@@ -201,7 +209,7 @@ def serials_list_sync():
 
 
 def get_serial_names_map():
-    serial_names_map = plugin.get_storage('serial_names_map', TTL=60 * 24)
+    serial_names_map = plugin.get_storage('serial_names_map', ttl=60 * 24)
     try:
         return serial_names_map['data']
     except KeyError:
@@ -224,6 +232,10 @@ def seasonvar_get_serial_seasons_list(season_id):
 def show_serial(season_id):
     plugin.set_content('seasons')
     seasons = seasonvar_get_serial_seasons_list(season_id)
+
+    if len(seasons) == 1:
+        return plugin.redirect(plugin.url_for('show_season',
+                                              season_id=seasons[0]['id']))
     return [{
                 'label': "{0} {1}".format("Season", s.get('season_number', 1)),
                 'thumbnail': s['poster'],
@@ -236,7 +248,8 @@ def show_serial(season_id):
                     'country': s['country'],
                     'season': s.get('season_number', 1),
                     'plot': s['description']
-                }
+                },
+                'properties': {'TotalEpisodes': '5'}
             }
             for s in seasons]
 
@@ -253,9 +266,10 @@ def seasonvar_get_episodes_list(season_id):
 
 
 @plugin.route('/show_season/<season_id>')
-def show_season(season_id):
-    plugin.set_content('episodes')
-
+@plugin.route('/show_season/<season_id>/<translate>',
+              name='show_season_with_translate')
+def show_season(season_id, translate=None):
+    original = '<Original>'
     # episodes.keys() [u'rating',
     # u'playlist',
     # u'name',
@@ -273,10 +287,82 @@ def show_season(season_id):
     episodes = seasonvar_get_episodes_list(season_id)
     # playlist.keys() [u'subtitles', u'link', u'name', u'perevod']
 
+    playlist = episodes['playlist']
+
+    translate_list = set([l.get('perevod', original) for l in playlist])
+
+    from pprint import pprint
+    pprint(episodes)
+    # xbmcswift2 run interactive plugin://plugin.video.nm.seasonvar/show_season/14753
+
+    if translate == original:
+        plugin.set_content('episodes')
+        return [{
+                    'label': e['name'],
+                    'thumbnail': episodes['poster'],
+                    'path': plugin.url_for('play',
+                                           url=e['link'].encode('utf-8')),
+
+                    'info': {
+                        'mediatype': 'episode',
+                        'tvshowtitle': episodes['name'],
+                        'year': episodes['year'],
+                        'genre': episodes['genre'],
+                        'country': episodes['country'],
+                        'season': episodes.get('season_number', 1)
+                    },
+                    'is_playable':True,
+                    'is_folder':False,
+                }
+                for e in playlist if 'perevod' not in e]
+
+    if translate is None and len(translate_list) > 1:
+        # raw = any(e for e in playlist if 'perevod' not in e)
+
+        last = defaultdict(list)
+        for l in playlist:
+            last[l.get('perevod', original)].append(l['name'])
+
+        def format_label(t):
+            if t in [u'Трейлеры']:
+                return t
+            return u'{0} - {1}'.format(t, last[t][-1])
+
+        return [{
+                    'label': format_label(t),
+                    'path': plugin.url_for('show_season_with_translate',
+                                           season_id=season_id,
+                                           translate=t.encode('utf-8')),
+                }
+                for t in translate_list]
+
+    if translate is not None:
+        plugin.set_content('episodes')
+        translate = unicode(translate, encoding='utf-8')
+        return [{
+                    'label': e['name'],
+                    'thumbnail': episodes['poster'],
+                    'path': plugin.url_for('play',
+                                           url=e['link'].encode(
+                                               'utf-8')),
+                    'info': {
+                        'mediatype': 'episode',
+                        'tvshowtitle': episodes['name'],
+                        'year': episodes['year'],
+                        'genre': episodes['genre'],
+                        'country': episodes['country'],
+                        'season': episodes.get('season_number', 1)
+                    },
+                    'is_playable':True,
+                    'is_folder':False,
+                }
+                for e in playlist if e.get('perevod', '') == translate]
+
+    plugin.set_content('episodes')
     return [{
-                'label': u"{0} {1}".format(e['name'], e.get('perevod', '')),
+                'label': e['name'],
                 'thumbnail': episodes['poster'],
-                'path': e['link'],
+                'path': plugin.url_for('play', url=e['link'].encode('utf-8')),
                 'info': {
                     'mediatype': 'episode',
                     'tvshowtitle': episodes['name'],
@@ -285,9 +371,17 @@ def show_season(season_id):
                     'country': episodes['country'],
                     'season': episodes.get('season_number', 1)
                 },
-                'is_playable': True
+                'is_playable': True,
+                'is_folder':False,
             }
-            for e in episodes['playlist']]
+            for e in playlist]
+
+
+@plugin.route('/play/<url>')
+def play(url):
+    plugin.log.info('Playing url: %s' % url)
+    url = unicode(url, encoding='utf-8')
+    return plugin.set_resolved_url(url)
 
 
 if __name__ == '__main__':
